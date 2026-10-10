@@ -111,12 +111,27 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
         .catch((err) => respond({ ok: false, error: err.message }));
       return true;
 
-    case 'cx:export-pdf':
-      handleExport(msg.payload, sender).then(respond).catch((err) => respond({ ok: false, error: err.message }));
+    // 下面四个是"面板挂在顶层窗口、动作在课件所在 frame 执行"的中转通道。
+    // 课件 iframe 常被撑到几千像素高，面板放里面会跟着沉到底部。
+    case 'cx:panel-show':
+      handlePanelShow(msg, sender).then(respond).catch((err) => respond({ ok: false, error: err.message }));
       return true;
 
-    case 'cx:save-data-url':
-      handleSaveDataUrl(msg.filename, msg.base64).then(respond);
+    case 'cx:panel-update':
+      handlePanelUpdate(msg, sender).then(respond).catch((err) => respond({ ok: false, error: err.message }));
+      return true;
+
+    case 'cx:panel-action':
+      handlePanelAction(msg, sender).then(respond).catch((err) => respond({ ok: false, error: err.message }));
+      return true;
+
+    case 'cx:panel-result':
+      handlePanelResult(msg, sender);
+      respond({ ok: true });
+      return false;
+
+    case 'cx:export-pdf':
+      handleExport(msg.payload, sender).then(respond).catch((err) => respond({ ok: false, error: err.message }));
       return true;
 
     case 'cx:fetch-image':
@@ -173,15 +188,6 @@ function forwardProgress(msg) {
     // frame 已经不在了，退而求其次广播给整个标签页
     chrome.tabs.sendMessage(job.tabId, msg).catch(() => {});
   });
-}
-
-async function handleSaveDataUrl(filename, base64) {
-  const id = await chrome.downloads.download({
-    url: `data:application/pdf;base64,${base64}`,
-    filename,
-    saveAs: false,
-  });
-  return { ok: true, downloadId: id };
 }
 
 // ------------------------------------------------------------------
@@ -249,7 +255,59 @@ async function registerDeck(deckId, tabId, frameId) {
   const store = await chrome.storage.session.get(key);
   if (store[key]) return false; // 已经有人显示了
   await chrome.storage.session.set({ [key]: { frameId, at: Date.now() } });
+  if (tabId != null) deckOwners.set(tabId, frameId);
   return true;
+}
+
+// ------------------------------------------------------------------
+// 面板中转：探测在子 frame，面板在顶层 frame
+// ------------------------------------------------------------------
+
+/** tabId -> 课件所在 frameId（动作要发回这里执行） */
+const deckOwners = new Map();
+
+async function handlePanelShow(msg, sender) {
+  const tabId = sender.tab && sender.tab.id;
+  if (tabId == null) return { ok: false, error: 'no tab' };
+  if (sender.frameId === 0) return { ok: true, installed: false }; // 顶层自己显示就行
+
+  deckOwners.set(tabId, sender.frameId);
+  const installed = await sendToFrame(tabId, 0, { type: 'cx:panel-install', deck: msg.deck });
+  return { ok: installed, installed };
+}
+
+async function handlePanelUpdate(msg, sender) {
+  const tabId = sender.tab && sender.tab.id;
+  if (tabId == null || sender.frameId === 0) return { ok: true };
+  const ok = await sendToFrame(tabId, 0, { type: 'cx:panel-update', deck: msg.deck });
+  return { ok };
+}
+
+async function handlePanelAction(msg, sender) {
+  const tabId = sender.tab && sender.tab.id;
+  const owner = tabId != null ? deckOwners.get(tabId) : null;
+  if (tabId == null || owner == null) return { ok: false, error: '找不到课件所在的 frame' };
+  const ok = await sendToFrame(tabId, owner, {
+    type: 'cx:panel-action',
+    action: msg.action,
+    payload: msg.payload,
+  });
+  return { ok };
+}
+
+function handlePanelResult(msg, sender) {
+  const tabId = sender.tab && sender.tab.id;
+  if (tabId == null || sender.frameId === 0) return;
+  sendToFrame(tabId, 0, { type: 'cx:panel-result', data: msg.data });
+}
+
+async function sendToFrame(tabId, frameId, message) {
+  try {
+    await chrome.tabs.sendMessage(tabId, message, { frameId });
+    return true;
+  } catch {
+    return false; // frame 没了
+  }
 }
 
 // ------------------------------------------------------------------
