@@ -235,13 +235,19 @@
       let deck = window.CXDetector.detect() || currentDeck;
 
       if (settings.autoScroll && deck && deck.images && deck.images.length) {
+        // 页数未知时 total 传 0，进度条走不确定动画；
+        // 不能用"已发现页数"当总数，那样条子会一直满格或倒退
         feedback({ kind: 'progress', done: 0, total: deck.pageCount || 0, text: '正在滚动加载全部页面…' });
         await window.CXDetector.autoScroll({
           maxRounds: 80,
           delay: 200,
           onProgress: (n) => {
-            const total = Math.max(n, deck.pageCount || 0);
-            feedback({ kind: 'progress', done: n, total, text: `正在加载页面…（已发现 ${n} 页）` });
+            feedback({
+              kind: 'progress',
+              done: n,
+              total: deck.pageCount || 0,
+              text: `正在加载页面…（已发现 ${n} 页）`,
+            });
           },
         });
         deck = window.CXDetector.detect() || deck;
@@ -376,10 +382,13 @@
           compose: '正在合成 PDF…',
           done: '完成',
         };
+        // 合成阶段 offscreen 直接报 done=total，会瞬间跳到 100%，
+        // 改成不确定动画更贴合实际（这一步确实没法精确算进度）
+        const composing = msg.phase === 'compose';
         feedback({
           kind: 'progress',
-          done: msg.done || 0,
-          total: msg.total || 0,
+          done: composing ? 0 : msg.done || 0,
+          total: composing ? 0 : msg.total || 0,
           text: phaseText[msg.phase] || '处理中…',
           tone: msg.phase === 'done' ? 'ok' : null,
         });

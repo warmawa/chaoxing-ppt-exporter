@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "学习通课件导出器",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "提取超星学习通章节里只能在线翻看的 PPT 课件，导出为 PDF 或下载原始文件。",
   "author": "Chaoxing PPT Exporter contributors",
   "homepage_url": "https://github.com/warmawa/chaoxing-ppt-exporter",
