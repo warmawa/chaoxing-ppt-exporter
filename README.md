@@ -35,8 +35,15 @@ git clone https://github.com/warmawa/chaoxing-ppt-exporter.git
 ```
 
 1. 打开 `chrome://extensions/`（Edge 是 `edge://extensions/`）
-2. 打开右上角的**开发者模式**
-3. 点**加载已解压的扩展程序**，选择仓库里的 `extension/` 目录
+2. 打开**开发者模式**开关，两个浏览器的位置不一样：
+
+   | 浏览器 | 开发者模式开关位置 | 按钮名称 |
+   |---|---|---|
+   | Chrome | 页面**右上角** | 加载已解压的扩展程序 |
+   | Edge | 页面**左下角** | 加载解压缩的扩展 |
+
+3. 点上面的按钮，选择仓库里的 `extension/` 目录
+   - ⚠️ 要选到**直接包含 `manifest.json` 的那一层**（即 `extension/` 本身），选到它的上一层会报 `Manifest file is missing or unreadable`
 4. 装好后建议把图标固定到工具栏
 
 > 想打包成 `.crx` 分发的话，用 Chrome 的"打包扩展程序"功能即可。
