@@ -1,0 +1,58 @@
+{
+  "manifest_version": 3,
+  "name": "学习通课件导出器",
+  "version": "1.0.0",
+  "description": "提取超星学习通章节里只能在线翻看的 PPT 课件，导出为 PDF 或下载原始文件。",
+  "author": "Chaoxing PPT Exporter contributors",
+  "homepage_url": "https://github.com/warmawa/chaoxing-ppt-exporter",
+  "minimum_chrome_version": "109",
+
+  "permissions": [
+    "downloads",
+    "offscreen",
+    "storage",
+    "declarativeNetRequest"
+  ],
+
+  "host_permissions": [
+    "*://*.chaoxing.com/*",
+    "*://*.xueyinonline.com/*"
+  ],
+
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+
+  "background": {
+    "service_worker": "src/background.js"
+  },
+
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.chaoxing.com/*",
+        "*://*.xueyinonline.com/*"
+      ],
+      "js": [
+        "src/lib/detector.js",
+        "src/lib/ui.js",
+        "src/content.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_about_blank": true
+    }
+  ],
+
+  "action": {
+    "default_popup": "src/popup.html",
+    "default_title": "学习通课件导出器",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
+  }
+}

@@ -1,0 +1,28 @@
+# 测试产物
+test/output/
+test/fixtures/*.jpg
+test/fixtures/*.jpeg
+test/fixtures/*.png
+
+# 打包产物
+dist/
+*.zip
+*.crx
+*.pem
+
+# 系统 / 编辑器
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Node（本项目没有构建步骤，留着以防以后加工具链）
+node_modules/
+npm-debug.log*
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>学习通课件导出器</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <h1>学习通课件导出器</h1>
+      <p class="sub">Chaoxing PPT Exporter</p>
+    </header>
+
+    <section class="card">
+      <div class="row">
+        <label for="quality">图片质量 <span class="val" id="qualityVal">92%</span></label>
+        <input type="range" id="quality" min="60" max="100" step="1" value="92" />
+        <p class="hint">只影响"图片合成"方式。越低文件越小，90% 以上基本看不出差别。</p>
+      </div>
+
+      <div class="row">
+        <label for="concurrency">并发下载数 <span class="val" id="concurrencyVal">6</span></label>
+        <input type="range" id="concurrency" min="1" max="12" step="1" value="6" />
+        <p class="hint">太高容易触发服务端限流，导致部分页面 403。</p>
+      </div>
+
+      <div class="row">
+        <label for="maxWidth">单页最大宽度 <span class="val" id="maxWidthVal">2600px</span></label>
+        <input type="range" id="maxWidth" min="1200" max="4000" step="100" value="2600" />
+        <p class="hint">超出后按比例缩放。课件页数很多时可以调低一些。</p>
+      </div>
+
+      <div class="row check">
+        <input type="checkbox" id="autoScroll" checked />
+        <label for="autoScroll">导出前自动滚动加载全部页面</label>
+      </div>
+      <p class="hint">课件图片是懒加载的，关掉的话可能只能抓到已经翻过的几页。</p>
+    </section>
+
+    <section class="card">
+      <h2>使用步骤</h2>
+      <ol class="steps">
+        <li>打开学习通课程章节，进入 PPT 课件页面</li>
+        <li>等课件加载完，右下角会出现导出面板</li>
+        <li>点「下载原文件」拿原件，或点「导出图片 PDF」合成</li>
+      </ol>
+      <p class="hint">面板没出现？先手动往下翻几页课件，脚本需要看到图片才能识别。</p>
+    </section>
+
+    <footer>
+      <span id="status" class="status"></span>
+    </footer>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

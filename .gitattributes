@@ -1,0 +1,12 @@
+# 统一用 LF 存进仓库，避免 Windows / macOS 协作时整文件 diff
+* text=auto eol=lf
+
+# 二进制文件不要被当作文本处理
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.pdf  binary
+*.zip  binary
+*.crx  binary

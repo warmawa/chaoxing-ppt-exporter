@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>Chaoxing PPT Exporter · 合成器</title>
+  </head>
+  <body>
+    <!--
+      offscreen document：MV3 的 service worker 里没有 DOM，
+      而把 PNG/WebP 转成 JPEG 必须用到 canvas，所以这一步只能放在这里跑。
+      页面本身不可见，任务完成后由 background 决定何时关闭。
+    -->
+    <script src="lib/pdfwriter.js"></script>
+    <script src="offscreen.js"></script>
+  </body>
+</html>
