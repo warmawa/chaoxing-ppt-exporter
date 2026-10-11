@@ -4,11 +4,17 @@
  * 每个 frame 都会跑一份：谁先探测到课件，谁就负责执行导出动作，
  * 由 background 统一去重，避免多层 iframe 里冒出一堆重复按钮。
  *
- * ⚠️ 面板的挂载位置是这里的重点，别改回去：
- *   课件所在的 iframe 常被撑得跟整份 PPT 一样高，在这种 frame 里
- *   position:fixed 的 bottom 锚的是"iframe 的底部"而不是"浏览器窗口的底部"，
- *   于是按钮跑到几千像素以下，用户得把整份课件翻到底才看得见。
- *   所以探测归探测，面板一律挂到顶层窗口（frameId 0），两者靠 background 中转。
+ * ⚠️ 两条不能改回去的设计：
+ *
+ * 1. **面板常驻**。只要页面匹配就建面板，不等探测成功。之前的版本是"探测到
+ *    课件才建面板"，探测条件一不满足（图片不足 2 张、懒加载还没触发、课件在
+ *    没注入脚本的域里）页面上就什么都没有，用户根本不知道插件装了没装。
+ *    现在探测失败也会显示诊断信息和「重新检测」按钮。
+ *
+ * 2. **面板挂在顶层窗口**。课件所在的 iframe 常被撑得跟整份 PPT 一样高，
+ *    position:fixed 的 bottom 锚的是"iframe 的底部"而不是"浏览器窗口的底部"，
+ *    按钮会跑到几千像素以下。所以探测归探测，面板一律挂顶层（frameId 0），
+ *    两者靠 background 中转。
  */
 
 (function () {
@@ -42,12 +48,22 @@
   let isOwner = false; // 本 frame 探测到课件，下载/导出/复制都由本 frame 执行
   let remotePanel = false; // 面板挂在顶层窗口，本 frame 的运行结果要回传过去显示
 
+  // 探测诊断：各 frame 的探测摘要，顶层汇总后显示给用户看
+  const probeFrames = new Map(); // frameId -> { images, hasFileinfo, ready }
+  let lastReport = '';
+
   // ------------------------------------------------------------------
   // 启动
   // ------------------------------------------------------------------
 
   async function boot() {
     settings = await fetchSettings();
+
+    // 顶层先把面板立起来：常驻，不依赖探测结果
+    if (isTopFrame) {
+      installPanel(null);
+      askProbeStatus();
+    }
 
     // 课件是异步加载的，分几个时间点反复探测
     [0, 1000, 2500, 5000, 9000].forEach((delay) => setTimeout(tryDetect, delay));
@@ -72,17 +88,18 @@
       deck = window.CXDetector.detect();
     } catch (err) {
       console.debug('[CX] 探测异常', err);
-      return;
     }
+
+    reportProbe(deck);
+
     if (!deck) return;
 
     // 至少要有可落地的产出：原文件直链、PDF 直链或图片序列
     if (!deck.downloadUrl && !deck.pdfUrl && (!deck.images || deck.images.length < 2)) return;
 
     // 已经接管了，只在懒加载推进、页数变多时刷新显示
-    if (panel || remotePanel) {
-      const prev = currentDeck;
-      if (prev && (deck.pageCount > prev.pageCount || deck.images.length > prev.images.length)) {
+    if (currentDeck) {
+      if (deck.pageCount > currentDeck.pageCount || deck.images.length > currentDeck.images.length) {
         currentDeck = deck;
         publishDeck(deck);
       }
@@ -95,24 +112,77 @@
     } catch {
       /* service worker 没起来，退化成本地显示 */
     }
-    if (!first || !first.first) return; // 别的 frame 已经显示了
+    if (!first || !first.first) return; // 别的 frame 已经接管了这个课件
 
     currentDeck = deck;
     isOwner = true;
     await placePanel(deck);
   }
 
+  /** 把本 frame 的探测情况报出去，顶层汇总成一行诊断文字 */
+  function reportProbe(deck) {
+    let images = 0;
+    try {
+      images = window.CXDetector.collectImageUrls().length;
+    } catch {
+      /* 拿不到就算了，诊断信息而已 */
+    }
+    const data = { images, hasFileinfo: !!window.fileinfo, ready: !!deck };
+    const key = JSON.stringify(data);
+    if (key === lastReport) return; // 没变化就不发，避免每 6 秒刷一条消息
+    lastReport = key;
+
+    if (isTopFrame) {
+      probeFrames.set(0, data);
+      renderDiagnostic();
+      return;
+    }
+    chrome.runtime.sendMessage({ type: 'cx:probe-report', data }).catch(() => {});
+  }
+
+  function askProbeStatus() {
+    chrome.runtime.sendMessage({ type: 'cx:probe-status' }, (resp) => {
+      if (!resp || !resp.frames) return;
+      resp.frames.forEach((f) => probeFrames.set(f.frameId, f));
+      renderDiagnostic();
+    });
+  }
+
+  function renderDiagnostic() {
+    if (!panel) return;
+    if (currentDeck) {
+      panel.setDiagnostic('');
+      return;
+    }
+    let images = 0;
+    let withFileinfo = 0;
+    let ready = 0;
+    for (const r of probeFrames.values()) {
+      images = Math.max(images, r.images || 0);
+      if (r.hasFileinfo) withFileinfo++;
+      if (r.ready) ready++;
+    }
+    const bits = [
+      `已监听 ${probeFrames.size} 个框架`,
+      `捕获图片 ${images} 张`,
+      withFileinfo ? `${withFileinfo} 个框架有 fileinfo` : '未见到 fileinfo',
+    ];
+    if (ready) bits.push(`${ready} 个已识别`);
+    panel.setDiagnostic(`[诊断] ${bits.join(' · ')}`);
+  }
+
   /**
    * 决定面板挂在哪：能挂顶层就挂顶层，挂不上（顶层没有 content script）才就地显示。
    */
   async function placePanel(deck) {
+    renderDiagnostic();
     if (isTopFrame) {
       installPanel(deck);
       return;
     }
     try {
       const resp = await chrome.runtime.sendMessage({ type: 'cx:panel-show', deck });
-      if (resp && resp.ok && resp.installed) {
+      if (resp && resp.ok) {
         remotePanel = true;
         return;
       }
@@ -123,17 +193,25 @@
   }
 
   function installPanel(deck) {
+    if (panel) {
+      panel.update(deck);
+      return panel;
+    }
     panel = new window.CXPanel(deck, {
       onExport: () => runAction('export'),
       onOriginal: (url) => runAction('original', { url }),
       onCopy: () => runAction('copy'),
+      onRedetect: () => runAction('redetect'),
       onClose: () => {
         panel = null;
       },
     });
+    renderDiagnostic();
+    return panel;
   }
 
   function publishDeck(deck) {
+    renderDiagnostic();
     if (panel) {
       panel.update(deck);
     } else if (remotePanel) {
@@ -146,13 +224,18 @@
   // ------------------------------------------------------------------
 
   function runAction(action, payload) {
-    if (isOwner) {
+    // 重新检测要广播给所有 frame（课件可能在任何一层），所以一律走 background
+    if (isOwner && action !== 'redetect') {
       executeAction(action, payload || {});
       return;
     }
     chrome.runtime.sendMessage({ type: 'cx:panel-action', action, payload: payload || {} }, (resp) => {
       if (!resp || !resp.ok) {
-        feedback({ kind: 'toast', text: '操作没能下发到课件所在页面，刷新页面重试', tone: 'err' });
+        feedback({
+          kind: 'toast',
+          text: (resp && resp.error) || '操作没能下发到课件所在页面，刷新页面重试',
+          tone: 'err',
+        });
       }
     });
   }
@@ -161,6 +244,7 @@
     if (action === 'original') downloadOriginal(payload.url);
     else if (action === 'export') exportAsPdf();
     else if (action === 'copy') copyLinks();
+    else if (action === 'redetect') tryDetect();
   }
 
   /**
@@ -234,7 +318,13 @@
     try {
       let deck = window.CXDetector.detect() || currentDeck;
 
-      if (settings.autoScroll && deck && deck.images && deck.images.length) {
+      if (!deck) {
+        feedback({ kind: 'busy', busy: false });
+        feedback({ kind: 'toast', text: '还没检测到课件，先翻几页再点重新检测', tone: 'err' });
+        return;
+      }
+
+      if (settings.autoScroll && deck.images && deck.images.length) {
         // 页数未知时 total 传 0，进度条走不确定动画；
         // 不能用"已发现页数"当总数，那样条子会一直满格或倒退
         feedback({ kind: 'progress', done: 0, total: deck.pageCount || 0, text: '正在滚动加载全部页面…' });
@@ -342,30 +432,42 @@
   }
 
   // ------------------------------------------------------------------
-  // 消息：面板挂载、动作下发、状态回传
+  // 消息：面板挂载、动作下发、状态回传、诊断汇总
   // ------------------------------------------------------------------
 
   chrome.runtime.onMessage.addListener((msg) => {
     if (!msg || !msg.type) return false;
 
     switch (msg.type) {
-      // 顶层窗口收到：把面板建在这里
+      // 顶层窗口收到：把面板建在这里（已有就地更新）
       case 'cx:panel-install':
         if (!isTopFrame) return false;
         currentDeck = msg.deck;
-        if (panel) panel.update(msg.deck);
-        else installPanel(msg.deck);
+        installPanel(msg.deck);
         return false;
 
       case 'cx:panel-update':
         if (!isTopFrame || !panel) return false;
         currentDeck = msg.deck;
         panel.update(msg.deck);
+        renderDiagnostic();
         return false;
 
       // 课件所在 frame 收到：面板在顶层，代为执行动作
       case 'cx:panel-action':
-        executeAction(msg.action, msg.payload || {});
+        if (isOwner) executeAction(msg.action, msg.payload || {});
+        return false;
+
+      // 所有 frame 收到：重新探测一遍
+      case 'cx:redetect':
+        tryDetect();
+        return false;
+
+      // 顶层窗口收到：某个子 frame 的探测摘要
+      case 'cx:probe-report':
+        if (!isTopFrame) return false;
+        probeFrames.set(msg.frameId == null ? -1 : msg.frameId, msg.data || {});
+        renderDiagnostic();
         return false;
 
       // 顶层窗口收到：课件所在 frame 的运行状态
@@ -374,8 +476,8 @@
         applyFeedback(msg.data);
         return false;
 
-      // offscreen 的合成进度，先到课件所在 frame，再转到面板
-      case 'cx:progress':
+      // 课件所在 frame 收到：合成进度（面板在顶层，经 feedback 转过去）
+      case 'cx:progress': {
         if (activeJobId && msg.jobId && msg.jobId !== activeJobId) return false;
         const phaseText = {
           download: '正在下载图片…',
@@ -393,6 +495,7 @@
           tone: msg.phase === 'done' ? 'ok' : null,
         });
         return false;
+      }
 
       default:
         return false;

@@ -130,6 +130,16 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
       respond({ ok: true });
       return false;
 
+    // 各 frame 上报自己的探测摘要，顶层汇总成一行诊断文字给用户看
+    case 'cx:probe-report':
+      handleProbeReport(msg, sender);
+      respond({ ok: true });
+      return false;
+
+    case 'cx:probe-status':
+      respond({ ok: true, frames: listProbeReports(sender.tab && sender.tab.id) });
+      return false;
+
     case 'cx:export-pdf':
       handleExport(msg.payload, sender).then(respond).catch((err) => respond({ ok: false, error: err.message }));
       return true;
@@ -285,14 +295,69 @@ async function handlePanelUpdate(msg, sender) {
 
 async function handlePanelAction(msg, sender) {
   const tabId = sender.tab && sender.tab.id;
-  const owner = tabId != null ? deckOwners.get(tabId) : null;
-  if (tabId == null || owner == null) return { ok: false, error: '找不到课件所在的 frame' };
+  if (tabId == null) return { ok: false, error: 'no tab' };
+
+  // 重新检测：课件可能在任何一层 iframe 里，广播给整个标签页
+  if (msg.action === 'redetect') {
+    try {
+      await chrome.tabs.sendMessage(tabId, { type: 'cx:redetect' });
+      return { ok: true };
+    } catch {
+      return { ok: false, error: '页面无响应，刷新后重试' };
+    }
+  }
+
+  const owner = deckOwners.get(tabId);
+  if (owner == null) {
+    // service worker 重启过、owner 记录丢了 —— 广播兜底，由真正持有课件的 frame 执行
+    try {
+      await chrome.tabs.sendMessage(tabId, {
+        type: 'cx:panel-action',
+        action: msg.action,
+        payload: msg.payload,
+      });
+      return { ok: true };
+    } catch {
+      return { ok: false, error: '找不到课件所在的页面，刷新后重试' };
+    }
+  }
   const ok = await sendToFrame(tabId, owner, {
     type: 'cx:panel-action',
     action: msg.action,
     payload: msg.payload,
   });
   return { ok };
+}
+
+// ------------------------------------------------------------------
+// 探测诊断：各 frame 的探测摘要存在这里，顶层拉取后显示
+// ------------------------------------------------------------------
+
+/** tabId -> Map(frameId -> { images, hasFileinfo, ready }) */
+const probeInfo = new Map();
+
+function handleProbeReport(msg, sender) {
+  const tabId = sender.tab && sender.tab.id;
+  if (tabId == null) return;
+  const frameId = sender.frameId ?? -1;
+
+  let frames = probeInfo.get(tabId);
+  if (!frames) {
+    frames = new Map();
+    probeInfo.set(tabId, frames);
+  }
+  frames.set(frameId, { frameId, ...(msg.data || {}) });
+
+  // 顶层的面板在显示，直接把这条转发上去
+  if (frameId !== 0) {
+    sendToFrame(tabId, 0, { type: 'cx:probe-report', frameId, data: msg.data });
+  }
+}
+
+function listProbeReports(tabId) {
+  if (tabId == null) return [];
+  const frames = probeInfo.get(tabId);
+  return frames ? [...frames.values()] : [];
 }
 
 function handlePanelResult(msg, sender) {
@@ -321,8 +386,9 @@ chrome.runtime.onInstalled.addListener(async () => {
   }
 });
 
-// 标签页关闭时清掉去重记录
+// 标签页关闭时清掉去重记录与探测摘要
 chrome.tabs.onRemoved.addListener(async (tabId) => {
+  probeInfo.delete(tabId);
   const all = await chrome.storage.session.get(null);
   const keys = Object.keys(all).filter((k) => k.startsWith(`deck:${tabId}:`));
   if (keys.length) await chrome.storage.session.remove(keys);
