@@ -486,51 +486,56 @@
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
   const CSS = `
-    #cx-panel { position: fixed; left: 0; top: 12px; z-index: 2147483000;
+    /* ⚠️ 定位与层级只能写在 :host 上：shadow 内的样式表选不到 host 元素本身，
+       之前写成 "#cx-panel { position: fixed; ... }"，那条规则一次都没生效过，
+       host 退化为普通元素，跟着被撑高的 body 沉到页面底部。left/top 由 JS 设。 */
+    :host { position: fixed !important; display: block !important; z-index: 2147483647 !important;
+      margin: 0 !important; padding: 0 !important; border: 0 !important; background: transparent !important;
+      visibility: visible !important; opacity: 1 !important; pointer-events: auto !important;
       font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
       font-size: 13px; color: #1f2937; }
-    #cx-panel .ball { display: none; width: 46px; height: 46px; border-radius: 50%;
+     .ball { display: none; width: 46px; height: 46px; border-radius: 50%;
       background: #2563eb; color: #fff; font-size: 11px; font-weight: 600;
       align-items: center; justify-content: center; cursor: pointer; user-select: none;
       box-shadow: 0 4px 14px rgba(37,99,235,.42); }
-    #cx-panel .ball.ok { background: #059669; }
-    #cx-panel .ball.err { background: #dc2626; }
-    #cx-panel.mini .ball { display: flex; }
-    #cx-panel.mini .card { display: none; }
-    #cx-panel .card { width: ${CARD_W}px; max-width: calc(100vw - 24px); background: #fff;
+     .ball.ok { background: #059669; }
+     .ball.err { background: #dc2626; }
+    :host(.mini) .ball { display: flex; }
+    :host(.mini) .card { display: none; }
+     .card { width: ${CARD_W}px; max-width: calc(100vw - 24px); background: #fff;
       border: 1px solid #e5e7eb; border-radius: 12px;
       box-shadow: 0 10px 28px rgba(15,23,42,.16); overflow: hidden; }
-    #cx-panel .head { display: flex; align-items: center; gap: 8px; padding: 9px 12px;
+     .head { display: flex; align-items: center; gap: 8px; padding: 9px 12px;
       background: #2563eb; color: #fff; cursor: move; user-select: none; }
-    #cx-panel .head b { flex: 1; font-size: 13px; font-weight: 600; }
-    #cx-panel .head span { background: rgba(255,255,255,.22); border-radius: 999px; padding: 1px 8px; font-size: 11px; }
-    #cx-panel .head button { background: transparent; border: 0; color: #fff; font-size: 15px;
+     .head b { flex: 1; font-size: 13px; font-weight: 600; }
+     .head span { background: rgba(255,255,255,.22); border-radius: 999px; padding: 1px 8px; font-size: 11px; }
+     .head button { background: transparent; border: 0; color: #fff; font-size: 15px;
       cursor: pointer; padding: 2px 6px; border-radius: 5px; font-family: inherit; }
-    #cx-panel .head button:hover { background: rgba(255,255,255,.2); }
-    #cx-panel .body { padding: 10px 12px 11px; }
-    #cx-panel .meta { font-size: 11.5px; color: #6b7280; margin-bottom: 9px; word-break: break-all; }
-    #cx-panel .meta b { color: #374151; }
-    #cx-panel .lead { display: block; font-size: 12.5px; color: #374151; font-weight: 600; margin-bottom: 5px; }
-    #cx-panel .btns { display: flex; gap: 8px; flex-wrap: wrap; }
-    #cx-panel button.act { flex: 1 1 100px; border: 0; border-radius: 8px; padding: 8px 10px;
+     .head button:hover { background: rgba(255,255,255,.2); }
+     .body { padding: 10px 12px 11px; }
+     .meta { font-size: 11.5px; color: #6b7280; margin-bottom: 9px; word-break: break-all; }
+     .meta b { color: #374151; }
+     .lead { display: block; font-size: 12.5px; color: #374151; font-weight: 600; margin-bottom: 5px; }
+     .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+     button.act { flex: 1 1 100px; border: 0; border-radius: 8px; padding: 8px 10px;
       font-size: 12.5px; font-weight: 600; cursor: pointer; font-family: inherit; }
-    #cx-panel button.act:disabled { opacity: .55; cursor: not-allowed; }
-    #cx-panel .primary { background: #2563eb; color: #fff; }
-    #cx-panel .ghost { background: #f3f4f6; color: #374151; border: 1px solid #e5e7eb; }
-    #cx-panel .prog { display: none; }
-    #cx-panel .prog.show { display: block; }
-    #cx-panel .bar { height: 8px; background: #d8dde4; border-radius: 999px; overflow: hidden; margin-top: 11px; }
-    #cx-panel .fill { height: 100%; width: 0%; background: #2563eb; border-radius: 999px; transition: width .25s; }
-    #cx-panel .fill.ok { background: #059669; }
-    #cx-panel .fill.err { background: #dc2626; }
-    #cx-panel .status { margin-top: 6px; font-size: 11.5px; color: #4b5563; display: flex; justify-content: space-between; gap: 8px; }
-    #cx-panel .status .stext { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    #cx-panel .status.err { color: #dc2626; font-weight: 600; }
-    #cx-panel .status.ok { color: #059669; font-weight: 600; }
-    #cx-panel .diag { display: none; margin-top: 8px; font-size: 11px; color: #6b7280;
+     button.act:disabled { opacity: .55; cursor: not-allowed; }
+     .primary { background: #2563eb; color: #fff; }
+     .ghost { background: #f3f4f6; color: #374151; border: 1px solid #e5e7eb; }
+     .prog { display: none; }
+     .prog.show { display: block; }
+     .bar { height: 8px; background: #d8dde4; border-radius: 999px; overflow: hidden; margin-top: 11px; }
+     .fill { height: 100%; width: 0%; background: #2563eb; border-radius: 999px; transition: width .25s; }
+     .fill.ok { background: #059669; }
+     .fill.err { background: #dc2626; }
+     .status { margin-top: 6px; font-size: 11.5px; color: #4b5563; display: flex; justify-content: space-between; gap: 8px; }
+     .status .stext { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+     .status.err { color: #dc2626; font-weight: 600; }
+     .status.ok { color: #059669; font-weight: 600; }
+     .diag { display: none; margin-top: 8px; font-size: 11px; color: #6b7280;
       background: #f9fafb; border: 1px solid #eef0f3; border-radius: 6px; padding: 6px 8px; word-break: break-all; }
-    #cx-panel .diag.show { display: block; }
-    #cx-panel .hint { margin-top: 9px; font-size: 11px; color: #9ca3af;
+     .diag.show { display: block; }
+     .hint { margin-top: 9px; font-size: 11px; color: #9ca3af;
       border-top: 1px dashed #e5e7eb; padding-top: 8px; }
   `;
 
@@ -569,9 +574,44 @@
     return panelRef;
   }
 
+  /** 挂到 <html> 的最后一个子节点：DOM 顺序最后，同 z-index 下也压在最上面 */
+  function mountPanelHost(host) {
+    const root = document.documentElement || document.body;
+    if (!root) return;
+    if (host.parentNode !== root || host.nextElementSibling) root.appendChild(host);
+  }
+
+  /** 看门狗：页面整页重渲染会把面板摘掉，被撑高的文档会把它顶出视口 */
+  let panelGuardTimer = null;
+  function startPanelGuard(host, resetPos) {
+    if (panelGuardTimer) return;
+    const tick = () => {
+      if (!host.isConnected) return;
+      mountPanelHost(host);
+      const r = host.getBoundingClientRect();
+      const vw = window.innerWidth || document.documentElement.clientWidth || 1024;
+      const vh = window.innerHeight || document.documentElement.clientHeight || 768;
+      const outside = r.bottom <= 0 || r.top >= vh || r.right <= 0 || r.left >= vw;
+      if ((r.width || r.height) && outside) resetPos();
+    };
+    panelGuardTimer = setInterval(tick, 2000);
+    try {
+      new MutationObserver(tick).observe(document.documentElement, { childList: true });
+    } catch { /* 观察不了就靠定时兜底 */ }
+  }
+
   function buildPanel(initialDeck) {
     const host = document.createElement('div');
     host.id = 'cx-panel';
+    // 内联兜底一份定位与层级，防止页面的 !important 样式把 :host 规则压过去
+    host.style.setProperty('position', 'fixed', 'important');
+    host.style.setProperty('display', 'block', 'important');
+    host.style.setProperty('z-index', '2147483647', 'important');
+    host.style.setProperty('margin', '0', 'important');
+    host.style.setProperty('padding', '0', 'important');
+    host.style.setProperty('visibility', 'visible', 'important');
+    host.style.setProperty('left', '12px');
+    host.style.setProperty('top', '12px');
     const shadow = host.attachShadow({ mode: 'open' });
     const style = document.createElement('style');
     style.textContent = CSS;
@@ -599,7 +639,8 @@
         <div class="hint">面板会一直悬浮在这里；缩成小球后球面上仍显示进度百分比。</div>
       </div>`;
     shadow.appendChild(card);
-    document.documentElement.appendChild(host);
+    mountPanelHost(host);
+    startPanelGuard(host, applyPosLater);
 
     const el = {
       badge: shadow.querySelector('.badge'),
@@ -630,6 +671,13 @@
       host.style.top = `${y}px`;
       if (minimized) ballPos = { x, y };
       else cardPos = { x, y };
+    }
+
+    /** 被撑高的文档顶出视口时，位置重置回默认 */
+    function applyPosLater() {
+      cardPos = null;
+      ballPos = null;
+      applyPos();
     }
 
     function bindDrag(target, onTap) {

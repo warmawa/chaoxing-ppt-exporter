@@ -18,13 +18,23 @@
   const CARD_W = 460;
   const BALL = 46;
 
+  // ⚠️ 定位与层级必须写在 :host 上（或内联 style）。
+  // Shadow DOM 的样式表只作用于 shadow tree 内部，选不到 host 元素本身——
+  // 之前写成 `.cx-root { position: fixed; ... }`，那条规则一次都没生效过，
+  // host 被 `all: initial` 重置成静态内联元素，跟着 body 一起沉到页面底部。
   const CSS = `
-    :host { all: initial; }
-    .cx-root {
-      position: fixed;
-      left: 0;
-      top: 12px;
-      z-index: 2147483000;
+    :host {
+      all: initial;
+      position: fixed !important;
+      display: block !important;
+      z-index: 2147483647 !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      border: 0 !important;
+      background: transparent !important;
+      visibility: visible !important;
+      opacity: 1 !important;
+      pointer-events: auto !important;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
                    "Microsoft YaHei", "Helvetica Neue", sans-serif;
       font-size: 13px;
@@ -56,7 +66,7 @@
       0%, 100% { transform: scale(1); }
       50%      { transform: scale(1.12); }
     }
-    .cx-root.cx-mini .cx-ball { display: flex; }
+    :host(.cx-mini) .cx-ball { display: flex; }
 
     /* ---------- 浮窗形态 ---------- */
     .cx-card {
@@ -68,7 +78,7 @@
       box-shadow: 0 10px 28px rgba(15, 23, 42, .16), 0 2px 6px rgba(15, 23, 42, .08);
       overflow: hidden;
     }
-    .cx-root.cx-mini .cx-card { display: none; }
+    :host(.cx-mini) .cx-card { display: none; }
 
     .cx-head {
       display: flex;
@@ -161,6 +171,16 @@
     build() {
       const host = document.createElement('div');
       host.className = 'cx-root';
+      // 内联一份定位与层级：即便 :host 规则被页面的 !important 样式压过，
+      // 内联的 important 也能兜住。left/top 留给 applyPosition 设置。
+      host.style.setProperty('position', 'fixed', 'important');
+      host.style.setProperty('display', 'block', 'important');
+      host.style.setProperty('z-index', '2147483647', 'important');
+      host.style.setProperty('margin', '0', 'important');
+      host.style.setProperty('padding', '0', 'important');
+      host.style.setProperty('visibility', 'visible', 'important');
+      host.style.setProperty('left', '12px');
+      host.style.setProperty('top', '12px');
       const shadow = host.attachShadow({ mode: 'open' });
 
       const style = document.createElement('style');
@@ -218,13 +238,66 @@
       this.el.head.querySelector('[data-act="min"]').addEventListener('click', () => this.minimize());
       this.bindDrag(this.ball, () => this.expand());
       this.bindDrag(this.el.head);
-      document.documentElement.appendChild(host);
+
+      this.mount();
+      this.startGuard();
       this.applyPosition();
 
-      window.addEventListener('resize', () => this.applyPosition());
+      this.onResize = () => this.applyPosition();
+      window.addEventListener('resize', this.onResize);
 
       // 呼吸 4 下提醒存在，之后安静下来
       setTimeout(() => this.ball.classList.remove('pulse'), 6500);
+    }
+
+    // ----------------------------------------------------------------
+    // 挂载保障：页面脚本清 DOM、整页重渲染都可能把面板摘掉
+    // ----------------------------------------------------------------
+
+    /** 挂到 <html> 的最后一个子节点：DOM 顺序最后，同层级下也压在最上面 */
+    mount() {
+      const root = document.documentElement || document.body;
+      if (!root) return false;
+      if (this.host.parentNode !== root || this.host.nextElementSibling) {
+        root.appendChild(this.host);
+      }
+      return true;
+    }
+
+    /** 看门狗：定时 + DOM 变动时确认面板还在、还在视口内 */
+    startGuard() {
+      if (this.guardTimer) return;
+      const tick = () => {
+        if (this.destroyed) return;
+        this.mount();
+        this.ensureInViewport();
+      };
+      this.guardTimer = setInterval(tick, 2000);
+      if (typeof MutationObserver !== 'undefined') {
+        try {
+          this.observer = new MutationObserver(tick);
+          this.observer.observe(document.documentElement, { childList: true });
+        } catch {
+          /* 观察不了就算了，定时兜底还在 */
+        }
+      }
+    }
+
+    /**
+     * 面板被撑高的 body / iframe 顶出视口时拉回来。
+     * 这种情况在课件页很常见：宿主文档高度动辄几千像素，
+     * 而 fixed 定位一旦失效（祖先有 transform/filter）就会跟着文档流跑。
+     */
+    ensureInViewport() {
+      const r = this.host.getBoundingClientRect();
+      const vw = window.innerWidth || document.documentElement.clientWidth || 1024;
+      const vh = window.innerHeight || document.documentElement.clientHeight || 768;
+      if (!r.width && !r.height) return; // 还没布局，别乱动
+      const outside = r.bottom <= 0 || r.top >= vh || r.right <= 0 || r.left >= vw;
+      if (!outside) return;
+      this.cardPos = null;
+      this.ballPos = null;
+      this.applyPosition();
     }
 
     // ----------------------------------------------------------------
@@ -467,7 +540,10 @@
     }
 
     destroy() {
-      window.removeEventListener('resize', this.applyPosition);
+      this.destroyed = true;
+      if (this.guardTimer) clearInterval(this.guardTimer);
+      if (this.observer) this.observer.disconnect();
+      if (this.onResize) window.removeEventListener('resize', this.onResize);
       this.host.remove();
       this.handlers.onClose?.();
     }

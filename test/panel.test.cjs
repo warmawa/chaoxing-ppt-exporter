@@ -71,15 +71,16 @@ console.log('\n常驻设计要求（这几条是踩过坑的，别改回去）')
 // 面板必须能在没有 deck 时创建：installPanel(null) 在 boot 里被调用
 check('顶层启动时就建面板（不等探测结果）', /if \(isTopFrame\)[\s\S]{0,120}installPanel\(null\)/.test(content));
 
-// 定位必须是 fixed，否则会跟着长课件沉到底部
-check('容器用 position: fixed', /\.cx-root\s*\{[^}]*position:\s*fixed/.test(css));
+// 定位必须是 fixed，否则会跟着长课件沉到底部。
+// 且必须写在 :host 上——shadow 内的样式表选不到 host 元素本身。
+check('容器用 position: fixed', /:host\s*\{[^}]*position:\s*fixed/.test(css));
 
 // 位置由 JS 管：left/top 都要被设置
 check('位置由 JS 控制 left/top', /host\.style\.left/.test(ui) && /host\.style\.top/.test(ui));
 
 // 进度条默认收起、常驻小球显示百分比
 check('进度区默认收起（display: none）', /\.cx-progress\s*\{[^}]*display:\s*none/.test(css));
-check('小球形态有独立样式', /\.cx-root\.cx-mini\s+\.cx-ball/.test(css));
+check('小球形态有独立样式', /:host\(\.cx-mini\)\s+\.cx-ball/.test(css));
 check('小球文字可被更新', /setBallText\s*\(/.test(ui));
 
 // 探测失败也要有出口
@@ -116,6 +117,33 @@ check('panelRef 声明与面板常驻一致', /let panelRef = null;/.test(user))
 check('油猴版有诊断信息', /renderDiagnostic/.test(user));
 check('位置由 JS 控制 left/top', /host\.style\.left/.test(user) && /host\.style\.top/.test(user));
 check('有最小化成小球', /host\.classList\.add\('mini'\)/.test(user));
+
+// ---------------------------------------------------------------- 6
+console.log('\n层级与定位（Shadow DOM 作用域）');
+
+// Shadow DOM 的样式表只能作用于 shadow tree 内部，选不到 host 元素本身。
+// 定位一旦写进 `.cx-root {}` / `#cx-panel {}`，那条规则永远不会生效，
+// host 会退化成静态内联元素，跟着被撑高的 body 沉到几千像素以下——
+// 表现就是"页面上看不见，关页面时闪一下"。
+check('host 定位写在 :host 上', /:host\s*\{[^}]*position:\s*fixed\s*!important/.test(css));
+check('不用 .cx-root 给 host 定位（选不到）', !/^\s*\.cx-root\s*\{/m.test(css));
+check('z-index 取到最大值 2147483647', /z-index:\s*2147483647/.test(css));
+check('内联兜底一份 position / z-index',
+  /setProperty\('position', 'fixed', 'important'\)/.test(ui) &&
+  /setProperty\('z-index', '2147483647', 'important'\)/.test(ui));
+check('挂在 <html> 末尾（DOM 顺序最后）',
+  /nextElementSibling/.test(ui) && /document\.documentElement \|\| document\.body/.test(ui));
+check('有看门狗：定时 + DOM 变动', /setInterval\(tick, 2000\)/.test(ui) && /new MutationObserver/.test(ui));
+check('被顶出视口时能拉回来', /ensureInViewport/.test(ui));
+
+const userCssStart = user.indexOf('const CSS = `') + 'const CSS = `'.length;
+const userCss = user.slice(userCssStart, user.indexOf('`;', userCssStart));
+check('油猴：host 定位写在 :host 上', /:host\s*\{[^}]*position:\s*fixed\s*!important/.test(userCss));
+check('油猴：不用 #cx-panel 给 host 定位', !/^\s*#cx-panel\s*\{/m.test(userCss));
+check('油猴：z-index 取到最大值', /z-index:\s*2147483647/.test(userCss));
+check('油猴：内联兜底一份', /setProperty\('position', 'fixed', 'important'\)/.test(user));
+check('油猴：挂在 <html> 末尾', /function mountPanelHost/.test(user) && /nextElementSibling/.test(user));
+check('油猴：有看门狗', /function startPanelGuard/.test(user) && /setInterval\(tick, 2000\)/.test(user));
 
 // ----------------------------------------------------------------
 
